@@ -87,31 +87,40 @@ def get_daily_papers(topic, query="slam", max_results=2):
 
     raise RuntimeError(f"Failed to get papers for topic {topic} after 5 retries.")
 
-def update_json_file(filename,data_dict):
-    with open(filename,"r") as f:
-        content = f.read()
-        m = json.loads(content) if content else {}
+def update_json_file(filename, data_dict):
+    # 若文件不存在或为空，初始化为空字典
+    if not os.path.exists(filename):
+        json_data = {}
+    else:
+        with open(filename, "r") as f:
+            content = f.read().strip()
+            json_data = json.loads(content) if content else {}
 
-    json_data = m.copy()
+    # 合并数据
     for data in data_dict:
-        for keyword in data.keys():
-            papers = data[keyword]
+        for keyword, papers in data.items():
             if keyword in json_data:
                 json_data[keyword].update(papers)
             else:
                 json_data[keyword] = papers
 
-    with open(filename,"w") as f:
-        json.dump(json_data,f)
+    with open(filename, "w") as f:
+        json.dump(json_data, f, indent=2)
 
-def json_to_md(filename,md_filename):
+
+def json_to_md(filename, md_filename):
     DateNow = datetime.date.today().strftime("%Y.%m.%d")
-    with open(filename,"r") as f:
-        data = json.load(f) if f.read() else {}
 
-    with open(md_filename,"w") as f:
-        f.write(f"## Updated on {DateNow}\n")
-        f.write("\n")
+    # 安全读取 JSON 文件
+    if not os.path.exists(filename):
+        data = {}
+    else:
+        with open(filename, "r") as f:
+            content = f.read().strip()
+            data = json.loads(content) if content else {}
+
+    with open(md_filename, "w") as f:
+        f.write(f"## Updated on {DateNow}\n\n")
         for keyword, day_content in data.items():
             if not day_content:
                 continue
@@ -119,7 +128,7 @@ def json_to_md(filename,md_filename):
             f.write("|Publish Date|Title|Authors|PDF|Code|\n")
             f.write("|---|---|---|---|---|\n")
             day_content = sort_papers(day_content)
-            for _,v in day_content.items():
+            for _, v in day_content.items():
                 if v:
                     f.write(v)
             f.write("\n")
