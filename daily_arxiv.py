@@ -43,7 +43,7 @@ def get_code_link(qword:str) -> str:
     params = {"q": qword, "sort": "stars", "order": "desc"}
     r = requests.get(github_url, params=params)
     results = r.json()
-    return results["items"][0]["html_url"] if results["total_count"] > 0 else None
+    return results["items"][0]["html_url"] if results.get("total_count", 0) > 0 else None
 
 def get_daily_papers(topic, query="slam", max_results=2):
     content, content_to_web = dict(), dict()
@@ -55,12 +55,9 @@ def get_daily_papers(topic, query="slam", max_results=2):
             for result in client.results(search):
                 paper_id = result.get_short_id()
                 paper_title = result.title
-                paper_url = result.entry_id
                 code_url = base_url + paper_id
-                paper_abstract = result.summary.replace("\n"," ")
                 paper_authors = get_authors(result.authors)
                 paper_first_author = get_authors(result.authors,first_author=True)
-                publish_time = result.published.date()
                 update_time = result.updated.date()
 
                 logging.info(f"Time = {update_time} title = {paper_title} author = {paper_first_author}")
@@ -72,6 +69,10 @@ def get_daily_papers(topic, query="slam", max_results=2):
                 try:
                     r = requests.get(code_url).json()
                     repo_url = r.get("official", {}).get("url")
+                    if repo_url is None:
+                        repo_url = get_code_link(paper_title)
+                        if repo_url is None:
+                            repo_url = get_code_link(paper_key)
                 except Exception:
                     repo_url = None
 
@@ -86,7 +87,43 @@ def get_daily_papers(topic, query="slam", max_results=2):
 
     raise RuntimeError(f"Failed to get papers for topic {topic} after 5 retries.")
 
-# main block remains unchanged
+def update_json_file(filename,data_dict):
+    with open(filename,"r") as f:
+        content = f.read()
+        m = json.loads(content) if content else {}
+
+    json_data = m.copy()
+    for data in data_dict:
+        for keyword in data.keys():
+            papers = data[keyword]
+            if keyword in json_data:
+                json_data[keyword].update(papers)
+            else:
+                json_data[keyword] = papers
+
+    with open(filename,"w") as f:
+        json.dump(json_data,f)
+
+def json_to_md(filename,md_filename):
+    DateNow = datetime.date.today().strftime("%Y.%m.%d")
+    with open(filename,"r") as f:
+        data = json.load(f) if f.read() else {}
+
+    with open(md_filename,"w") as f:
+        f.write(f"## Updated on {DateNow}\n")
+        f.write("\n")
+        for keyword, day_content in data.items():
+            if not day_content:
+                continue
+            f.write(f"## {keyword}\n\n")
+            f.write("|Publish Date|Title|Authors|PDF|Code|\n")
+            f.write("|---|---|---|---|---|\n")
+            day_content = sort_papers(day_content)
+            for _,v in day_content.items():
+                if v:
+                    f.write(v)
+            f.write("\n")
+
 def demo(**config):
     data_collector = []
     data_collector_web = []
@@ -97,8 +134,8 @@ def demo(**config):
     publish_gitpage = config['publish_gitpage']
     publish_wechat = config['publish_wechat']
     show_badge = config['show_badge']
-
     b_update = config['update_paper_links']
+
     logging.info(f'Update Paper Link = {b_update}')
     if not b_update:
         logging.info(f"GET daily papers begin")
@@ -110,8 +147,35 @@ def demo(**config):
                 data_collector_web.append(data_web)
             except Exception as e:
                 logging.error(f"Failed to get papers for {topic}: {e}")
-            time.sleep(8)  # 防止触发 arXiv 限流
+            time.sleep(8)
         logging.info(f"GET daily papers end")
 
-    # 以下略，保持原逻辑
-    # ...
+    if publish_readme:
+        json_file = config['json_readme_path']
+        md_file   = config['md_readme_path']
+        update_json_file(json_file,data_collector)
+        json_to_md(json_file,md_file)
+
+    if publish_gitpage:
+        json_file = config['json_gitpage_path']
+        md_file   = config['md_gitpage_path']
+        update_json_file(json_file,data_collector)
+        json_to_md(json_file,md_file)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_path',type=str, default='config.yaml', help='configuration file path')
+    parser.add_argument('--update_paper_links', default=False, action="store_true", help='whether to update paper links')
+    args = parser.parse_args()
+
+    config = load_config(args.config_path)
+    config = {**config, 'update_paper_links': args.update_paper_links}
+    demo(**config)
+
+    try:
+        subprocess.run(["git", "add", "."], check=True)
+        subprocess.run(["git", "commit", "-m", "commit"], check=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], check=True)
+        print("Git commands executed successfully.")
+    except subprocess.CalledProcessError:
+        pass
