@@ -85,81 +85,59 @@ def get_code_link(qword:str) -> str:
         code_link = results["items"][0]["html_url"]
     return code_link
   
-def get_daily_papers(topic,query="slam", max_results=2):
-    """
-    @param topic: str
-    @param query: str
-    @return paper_with_code: dict
-    """
-    # output 
-    content = dict() 
-    content_to_web = dict()
-    search_engine = arxiv.Search(
-        query = query,
-        max_results = max_results,
-        sort_by = arxiv.SortCriterion.SubmittedDate
-    )
+def get_daily_papers(topic, query="slam", max_results=2):
+    content, content_to_web = dict(), dict()
 
-    for result in search_engine.results():
-
-        paper_id            = result.get_short_id()
-        paper_title         = result.title
-        paper_url           = result.entry_id
-        code_url            = base_url + paper_id #TODO
-        paper_abstract      = result.summary.replace("\n"," ")
-        paper_authors       = get_authors(result.authors)
-        paper_first_author  = get_authors(result.authors,first_author = True)
-        primary_category    = result.primary_category
-        publish_time        = result.published.date()
-        update_time         = result.updated.date()
-        comments            = result.comment
-
-        logging.info(f"Time = {update_time} title = {paper_title} author = {paper_first_author}")
-
-        # eg: 2108.09112v1 -> 2108.09112
-        ver_pos = paper_id.find('v')
-        if ver_pos == -1:
-            paper_key = paper_id
-        else:
-            paper_key = paper_id[0:ver_pos]    
-        paper_url = arxiv_url + 'abs/' + paper_key
-        
+    for retry in range(5):
         try:
-            # source code link    
-            r = requests.get(code_url).json()
-            repo_url = None
-            if "official" in r and r["official"]:
-                repo_url = r["official"]["url"]
-            # TODO: not found, two more chances  
-            # else: 
-            #    repo_url = get_code_link(paper_title)
-            #    if repo_url is None:
-            #        repo_url = get_code_link(paper_key)
-            if repo_url is not None:
-                content[paper_key] = "|**{}**|**{}**|{} et.al.|[{}]({})|**[link]({})**|\n".format(
-                       update_time,paper_title,paper_first_author,paper_key,paper_url,repo_url)
-                content_to_web[paper_key] = "- {}, **{}**, {} et.al., Paper: [{}]({}), Code: **[{}]({})**".format(
-                       update_time,paper_title,paper_first_author,paper_url,paper_url,repo_url,repo_url)
+            client = arxiv.Client(num_retries=2, delay_seconds=3)
+            search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate)
+            for result in client.results(search):
+                paper_id = result.get_short_id()
+                paper_title = result.title
+                code_url = base_url + paper_id
+                paper_authors = get_authors(result.authors)
+                paper_first_author = get_authors(result.authors, first_author=True)
+                update_time = result.updated.date()
 
-            else:
-                content[paper_key] = "|**{}**|**{}**|{} et.al.|[{}]({})|null|\n".format(
-                       update_time,paper_title,paper_first_author,paper_key,paper_url)
-                content_to_web[paper_key] = "- {}, **{}**, {} et.al., Paper: [{}]({})".format(
-                       update_time,paper_title,paper_first_author,paper_url,paper_url)
+                logging.info(f"Time = {update_time} title = {paper_title} author = {paper_first_author}")
 
-            # TODO: select useful comments
-            comments = None
-            if comments != None:
-                content_to_web[paper_key] += f", {comments}\n"
-            else:
-                content_to_web[paper_key] += f"\n"
+                ver_pos = paper_id.find('v')
+                paper_key = paper_id if ver_pos == -1 else paper_id[:ver_pos]    
+                paper_url = arxiv_url + 'abs/' + paper_key
+
+                try:
+                    r = requests.get(code_url)
+                    logging.info(f"API response: {r.content}")
+                    if r.status_code == 200 and r.content:
+                        r_json = r.json()
+                        repo_url = r_json.get("official", {}).get("url")
+                        if repo_url is None:
+                            repo_url = get_code_link(paper_title)
+                            if repo_url is None:
+                                repo_url = get_code_link(paper_key)
+                    else:
+                        repo_url = None
+                except json.JSONDecodeError:
+                    logging.error(f"JSONDecodeError: Invalid JSON response for {code_url}")
+                    repo_url = None
+                except Exception as e:
+                    logging.error(f"Error fetching code link for {paper_id}: {e}")
+                    repo_url = None
+
+                content[paper_key] = f"|**{update_time}**|**{paper_title}**|{paper_first_author} et.al.|[{paper_key}]({paper_url})|{'**[link](' + repo_url + ')**' if repo_url else 'null'}|\n"
+                content_to_web[paper_key] = f"- {update_time}, **{paper_title}**, {paper_first_author} et.al., Paper: [{paper_url}]({paper_url})" + (f", Code: **[{repo_url}]({repo_url})**\n" if repo_url else "")
+
+            return {topic: content}, {topic: content_to_web}
 
         except Exception as e:
-            logging.error(f"exception: {e} with id: {paper_key}")
+            logging.warning(f"Retry {retry + 1}/5 for topic {topic} failed: {e}")
+            time.sleep(5)
 
-    data = {topic:content}
-    data_web = {topic:content_to_web}
-    return data,data_web 
+    raise RuntimeError(f"Failed to get papers for topic {topic} after 5 retries.")
+
+
+     
 
 def update_paper_links(filename):
     '''
