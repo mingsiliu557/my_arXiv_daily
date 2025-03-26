@@ -39,9 +39,7 @@ keywords:
     #     filters: ["NeRF"]
 
     # --------- My Keywords ---------
-    "Robotics":
-        filters: ["Embodied Agent", "Robot Manipulation", "Robotic Manipulation", "Robot Navigation", 
-            "Robot Grasp", "Grasp", "Robot Learning", "Vision-Language-Action Model"]
+
     "DA":
         filters: ["Domain Adaptation", "Unsupervised Domain Adaptation", "Source-free Domain Adaptation", "Test-time Domain Adaptation"]
     "DG":
@@ -50,9 +48,6 @@ keywords:
         filters: ["Vision Language Model", "Vision Language Models", "Vision-Language Model", "Vision-Language Models"]
     "Prompt":
         filters: ["Prompt Tuning", "Prompt Learning", "Prompt", "Prompts"]
-    "Causal Learning":
-        filters: ["Causal Inference", "Causal model", "Causal Discovery", "Causal reasoning"]
-    "Adversarial":
-        filters: ["Adversarial Robustness", "Adversarial Training"]
+
     
         
